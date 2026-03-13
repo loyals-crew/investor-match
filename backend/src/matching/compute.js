@@ -22,11 +22,14 @@ import { scoreMatch } from './engine.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Preload all investor funds and profiles in bulk, then return a function
+ * Preload all investor funds in bulk, then return a function
  * that can retrieve mandates for any investor synchronously.
+ *
+ * Matching is fund-based only — investor profiles hold identity info,
+ * not investment criteria. No funds = no matches.
  */
 async function buildMandateLookup() {
-  // Bug #13: Single bulk queries instead of per-investor queries
+  // Bug #13: Single bulk query instead of per-investor queries
   const allFunds = await sql`
     SELECT investor_id, id, sectors, stages, geography, deal_types, deal_size_min, deal_size_max
     FROM funds
@@ -34,54 +37,33 @@ async function buildMandateLookup() {
     ORDER BY created_at DESC
   `;
 
-  const allProfiles = await sql`
-    SELECT user_id, sectors, stages, geography, deal_types, ticket_min, ticket_max
-    FROM investor_profiles
-  `;
-
-  // Build lookup maps
+  // Build lookup map
   const fundsByInvestor = {};
   for (const f of allFunds) {
     (fundsByInvestor[f.investor_id] ??= []).push(f);
   }
-  const profilesByUser = {};
-  for (const p of allProfiles) {
-    profilesByUser[p.user_id] = p;
-  }
 
   return function getMandates(investorId) {
     const funds = fundsByInvestor[investorId];
-    if (funds?.length > 0) {
-      return funds.map(f => ({
-        fund_id:    f.id,
-        sectors:    f.sectors    ?? [],
-        stages:     f.stages     ?? [],
-        geography:  f.geography  ?? [],
-        deal_types: f.deal_types ?? [],
-        size_min:   f.deal_size_min,
-        size_max:   f.deal_size_max,
-      }));
-    }
+    if (!funds?.length) return [];
 
-    // Fall back to general investor profile
-    const profile = profilesByUser[investorId];
-    if (!profile) return [];
-
-    return [{
-      fund_id:    null,
-      sectors:    profile.sectors    ?? [],
-      stages:     profile.stages     ?? [],
-      geography:  profile.geography  ?? [],
-      deal_types: profile.deal_types ?? [],
-      size_min:   profile.ticket_min,
-      size_max:   profile.ticket_max,
-    }];
+    return funds.map(f => ({
+      fund_id:    f.id,
+      sectors:    f.sectors    ?? [],
+      stages:     f.stages     ?? [],
+      geography:  f.geography  ?? [],
+      deal_types: f.deal_types ?? [],
+      size_min:   f.deal_size_min,
+      size_max:   f.deal_size_max,
+    }));
   };
 }
 
 /**
  * Build a list of mandate objects for a single investor (used by computeMatchesForInvestor
  * where we only need one investor's mandates and can skip bulk loading).
+ *
+ * Fund-based only — no funds = no matches.
  */
 async function getInvestorMandates(investorId) {
   const activeFunds = await sql`
@@ -92,34 +74,15 @@ async function getInvestorMandates(investorId) {
     ORDER BY created_at DESC
   `;
 
-  if (activeFunds.length > 0) {
-    return activeFunds.map(f => ({
-      fund_id:    f.id,
-      sectors:    f.sectors    ?? [],
-      stages:     f.stages     ?? [],
-      geography:  f.geography  ?? [],
-      deal_types: f.deal_types ?? [],
-      size_min:   f.deal_size_min,
-      size_max:   f.deal_size_max,
-    }));
-  }
-
-  const [profile] = await sql`
-    SELECT sectors, stages, geography, deal_types, ticket_min, ticket_max
-    FROM investor_profiles
-    WHERE user_id = ${investorId}
-  `;
-  if (!profile) return [];
-
-  return [{
-    fund_id:    null,
-    sectors:    profile.sectors    ?? [],
-    stages:     profile.stages     ?? [],
-    geography:  profile.geography  ?? [],
-    deal_types: profile.deal_types ?? [],
-    size_min:   profile.ticket_min,
-    size_max:   profile.ticket_max,
-  }];
+  return activeFunds.map(f => ({
+    fund_id:    f.id,
+    sectors:    f.sectors    ?? [],
+    stages:     f.stages     ?? [],
+    geography:  f.geography  ?? [],
+    deal_types: f.deal_types ?? [],
+    size_min:   f.deal_size_min,
+    size_max:   f.deal_size_max,
+  }));
 }
 
 /**

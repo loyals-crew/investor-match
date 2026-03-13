@@ -4,26 +4,14 @@ import sql from '../db/index.js';
 
 const router = Router();
 
-// POST /api/investors/profile  — save onboarding data
+// POST /api/investors/profile  — save identity info (mandate lives on funds)
 router.post('/profile', authenticate, async (req, res) => {
   if (req.user.role !== 'investor') {
     return res.status(403).json({ error: 'Only investors can access this route' });
   }
 
-  const {
-    firm_name,
-    contact_name,
-    sectors,
-    stages,
-    geography,
-    ticket_min,
-    ticket_max,
-    deal_types,
-    bio,
-    website,
-  } = req.body;
+  const { firm_name, contact_name, bio, website } = req.body;
 
-  // Bug #17: Server-side required field validation
   if (!firm_name?.trim()) {
     return res.status(400).json({ error: 'Firm name is required' });
   }
@@ -38,26 +26,20 @@ router.post('/profile', authenticate, async (req, res) => {
     if (existing.length > 0) {
       [profile] = await sql`
         UPDATE investor_profiles SET
-          firm_name = ${firm_name.trim()},
+          firm_name    = ${firm_name.trim()},
           contact_name = ${contact_name.trim()},
-          sectors = ${sectors},
-          stages = ${stages},
-          geography = ${geography},
-          ticket_min = ${ticket_min},
-          ticket_max = ${ticket_max},
-          deal_types = ${deal_types},
-          bio = ${bio},
-          website = ${website},
-          updated_at = NOW()
+          bio          = ${bio || null},
+          website      = ${website || null},
+          updated_at   = NOW()
         WHERE user_id = ${req.user.id}
         RETURNING *
       `;
     } else {
       [profile] = await sql`
         INSERT INTO investor_profiles
-          (user_id, firm_name, contact_name, sectors, stages, geography, ticket_min, ticket_max, deal_types, bio, website)
+          (user_id, firm_name, contact_name, bio, website)
         VALUES
-          (${req.user.id}, ${firm_name.trim()}, ${contact_name.trim()}, ${sectors}, ${stages}, ${geography}, ${ticket_min}, ${ticket_max}, ${deal_types}, ${bio}, ${website})
+          (${req.user.id}, ${firm_name.trim()}, ${contact_name.trim()}, ${bio || null}, ${website || null})
         RETURNING *
       `;
     }
