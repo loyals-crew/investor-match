@@ -28,12 +28,29 @@ const EMPTY = {
 
 import { useState } from 'react';
 
+/** Format a value in k (thousands) into a readable hint, e.g. 50000 → "$50M ($50,000,000 USD)" */
+function fmtKHint(kVal) {
+  const n = Number(kVal);
+  if (!n) return '';
+  const usd = (n * 1000).toLocaleString();
+  if (n >= 1000) return `$${(n / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}M ($${usd} USD)`;
+  return `$${n.toLocaleString()}k ($${usd} USD)`;
+}
+
+/** Short display for review rows, e.g. 50000 → "$50M", 500 → "$500k" */
+function fmtKShort(kVal) {
+  const n = Number(kVal);
+  if (!n) return '';
+  if (n >= 1000) return `$${(n / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}M`;
+  return `$${n.toLocaleString()}k`;
+}
+
 export function useFundForm(initialData) {
   const merged = initialData
     ? {
         ...EMPTY,
         ...initialData,
-        fund_size:     initialData.fund_size     ? String(initialData.fund_size / 1_000_000)     : '',
+        fund_size:     initialData.fund_size     ? String(initialData.fund_size / 1000)     : '',
         deal_size_min: initialData.deal_size_min ? String(initialData.deal_size_min / 1000) : '',
         deal_size_max: initialData.deal_size_max ? String(initialData.deal_size_max / 1000) : '',
         redemption_date: initialData.redemption_date
@@ -51,7 +68,7 @@ export function useFundForm(initialData) {
       vintage_year:   form.vintage_year ? Number(form.vintage_year) : null,
       status:         form.status,
       redemption_date: form.redemption_date || null,
-      fund_size:       form.fund_size ? Math.round(Number(form.fund_size) * 1_000_000) : null,
+      fund_size:       form.fund_size ? Math.round(Number(form.fund_size) * 1000) : null,
       deal_size_min:   form.deal_size_min ? Math.round(Number(form.deal_size_min) * 1000) : null,
       deal_size_max:   form.deal_size_max ? Math.round(Number(form.deal_size_max) * 1000) : null,
       sectors:         form.sectors,
@@ -159,20 +176,20 @@ export default function FundForm({ form, update, onSubmit, saving, error, mode =
         {/* ── Step 1: Capital & Deal Size ── */}
         {step === 1 && (
           <Section title="Capital & Deal Size" desc="Fund size and per-investment ticket range.">
-            <Field label="Total Fund Size (USD million)">
+            <Field label="Total Fund Size (USD k)">
               <div style={s.inputWrap}>
                 <span style={s.inputPrefix}>$</span>
                 <input
-                  type="number" min="0" step="0.1"
+                  type="number" min="0" step="1"
                   style={{ ...s.input, paddingLeft: '2rem' }}
                   value={form.fund_size}
                   onChange={e => update('fund_size', e.target.value)}
-                  placeholder="e.g. 50"
+                  placeholder="e.g. 50000"
                 />
-                <span style={s.inputSuffix}>M</span>
+                <span style={s.inputSuffix}>k</span>
               </div>
               {form.fund_size && (
-                <div style={s.hint}>= ${(Number(form.fund_size) * 1_000_000).toLocaleString()} USD</div>
+                <div style={s.hint}>= {fmtKHint(form.fund_size)}</div>
               )}
             </Field>
 
@@ -207,7 +224,7 @@ export default function FundForm({ form, update, onSubmit, saving, error, mode =
 
             {form.deal_size_min && form.deal_size_max && Number(form.deal_size_min) < Number(form.deal_size_max) && (
               <div style={s.preview}>
-                Deal range: <strong>${Number(form.deal_size_min).toLocaleString()}k – ${Number(form.deal_size_max).toLocaleString()}k</strong> per investment
+                Deal range: <strong>{fmtKShort(form.deal_size_min)} – {fmtKShort(form.deal_size_max)}</strong> per investment
               </div>
             )}
           </Section>
@@ -258,9 +275,9 @@ export default function FundForm({ form, update, onSubmit, saving, error, mode =
               {form.vintage_year && <ReviewRow label="Vintage" value={form.vintage_year} />}
               {form.redemption_date && <ReviewRow label="Closes" value={form.redemption_date} />}
               <ReviewRow label="Status" value={form.status.charAt(0).toUpperCase() + form.status.slice(1)} />
-              {form.fund_size && <ReviewRow label="Fund Size" value={`$${form.fund_size}M`} />}
+              {form.fund_size && <ReviewRow label="Fund Size" value={fmtKShort(form.fund_size)} />}
               {form.deal_size_min && form.deal_size_max && (
-                <ReviewRow label="Deal Range" value={`$${Number(form.deal_size_min).toLocaleString()}k – $${Number(form.deal_size_max).toLocaleString()}k`} />
+                <ReviewRow label="Deal Range" value={`${fmtKShort(form.deal_size_min)} – ${fmtKShort(form.deal_size_max)}`} />
               )}
               {form.sectors.length > 0 && <ReviewRow label="Sectors" value={form.sectors.join(', ')} />}
               {form.stages.length > 0 && <ReviewRow label="Stages" value={form.stages.join(', ')} />}

@@ -10,6 +10,23 @@
 
 import { useState } from 'react';
 
+/** Format a value in k (thousands) into a readable hint, e.g. 50000 → "$50M ($50,000,000 USD)" */
+function fmtKHint(kVal) {
+  const n = Number(kVal);
+  if (!n) return '';
+  const usd = (n * 1000).toLocaleString();
+  if (n >= 1000) return `$${(n / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}M ($${usd} USD)`;
+  return `$${n.toLocaleString()}k ($${usd} USD)`;
+}
+
+/** Short display for review rows, e.g. 50000 → "$50M", 500 → "$500k" */
+function fmtKShort(kVal) {
+  const n = Number(kVal);
+  if (!n) return '';
+  if (n >= 1000) return `$${(n / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })}M`;
+  return `$${n.toLocaleString()}k`;
+}
+
 const INVESTMENT_TYPES = ['Equity', 'Convertible Note', 'SAFE', 'Debt / Revenue-based', 'Grant'];
 const STATUS_OPTIONS = [
   { value: 'open',    label: 'Open',    desc: 'Actively accepting term sheets' },
@@ -31,7 +48,7 @@ export function useRaiseForm(initialData) {
         ...EMPTY,
         ...initialData,
         raise_amount:        initialData.raise_amount        ? String(initialData.raise_amount / 1000)        : '',
-        pre_money_valuation: initialData.pre_money_valuation ? String(initialData.pre_money_valuation / 1_000_000) : '',
+        pre_money_valuation: initialData.pre_money_valuation ? String(initialData.pre_money_valuation / 1000) : '',
         min_ticket:          initialData.min_ticket          ? String(initialData.min_ticket / 1000)          : '',
         equity_offered:      initialData.equity_offered      ? String(initialData.equity_offered)             : '',
         closing_date:        initialData.closing_date        ? initialData.closing_date.split('T')[0]         : '',
@@ -49,7 +66,7 @@ export function useRaiseForm(initialData) {
       raise_amount:        form.raise_amount        ? Math.round(Number(form.raise_amount) * 1000)        : null,
       investment_types:    form.investment_types,
       equity_offered:      form.equity_offered      ? Number(form.equity_offered)                        : null,
-      pre_money_valuation: form.pre_money_valuation ? Math.round(Number(form.pre_money_valuation) * 1_000_000) : null,
+      pre_money_valuation: form.pre_money_valuation ? Math.round(Number(form.pre_money_valuation) * 1000) : null,
       min_ticket:          form.min_ticket          ? Math.round(Number(form.min_ticket) * 1000)          : null,
       use_of_funds:        form.use_of_funds        || null,
       closing_date:        form.closing_date        || null,
@@ -179,23 +196,26 @@ export default function RaiseForm({ form, update, onSubmit, saving, error, mode 
                 <span style={s.inputSuffix}>k</span>
               </div>
               {form.raise_amount && (
-                <div style={s.hint}>= ${(Number(form.raise_amount) * 1000).toLocaleString()} USD</div>
+                <div style={s.hint}>= {fmtKHint(form.raise_amount)}</div>
               )}
             </Field>
 
             <div style={s.twoCol}>
-              <Field label="Pre-Money Valuation (USD M)">
+              <Field label="Pre-Money Valuation (USD k)">
                 <div style={s.inputWrap}>
                   <span style={s.inputPrefix}>$</span>
                   <input
-                    type="number" min="0" step="0.1"
+                    type="number" min="0" step="1"
                     style={{ ...s.input, paddingLeft: '2rem' }}
                     value={form.pre_money_valuation}
                     onChange={e => update('pre_money_valuation', e.target.value)}
-                    placeholder="e.g. 5"
+                    placeholder="e.g. 5000"
                   />
-                  <span style={s.inputSuffix}>M</span>
+                  <span style={s.inputSuffix}>k</span>
                 </div>
+                {form.pre_money_valuation && (
+                  <div style={s.hint}>= {fmtKHint(form.pre_money_valuation)}</div>
+                )}
               </Field>
               <Field label="Equity Offered (%)">
                 <div style={s.inputWrap}>
@@ -227,7 +247,7 @@ export default function RaiseForm({ form, update, onSubmit, saving, error, mode 
 
             {form.raise_amount && form.equity_offered && form.pre_money_valuation && (
               <div style={s.preview}>
-                Post-money valuation: <strong>${(Number(form.pre_money_valuation) + Number(form.raise_amount) / 1000).toFixed(1)}M</strong>
+                Post-money valuation: <strong>{fmtKShort(Number(form.pre_money_valuation) + Number(form.raise_amount))}</strong>
                 &nbsp;·&nbsp; Investor gets <strong>{form.equity_offered}%</strong> equity
               </div>
             )}
@@ -274,16 +294,16 @@ export default function RaiseForm({ form, update, onSubmit, saving, error, mode 
 
               <ReviewGroup title="Financials">
                 {form.raise_amount && (
-                  <ReviewRow label="Raising"    value={`$${Number(form.raise_amount).toLocaleString()}k ($${(Number(form.raise_amount) * 1000).toLocaleString()})`} />
+                  <ReviewRow label="Raising"    value={fmtKShort(form.raise_amount)} />
                 )}
                 {form.pre_money_valuation && (
-                  <ReviewRow label="Pre-Money"  value={`$${form.pre_money_valuation}M`} />
+                  <ReviewRow label="Pre-Money"  value={fmtKShort(form.pre_money_valuation)} />
                 )}
                 {form.equity_offered && (
                   <ReviewRow label="Equity"     value={`${form.equity_offered}%`} />
                 )}
                 {form.min_ticket && (
-                  <ReviewRow label="Min Ticket" value={`$${Number(form.min_ticket).toLocaleString()}k`} />
+                  <ReviewRow label="Min Ticket" value={fmtKShort(form.min_ticket)} />
                 )}
               </ReviewGroup>
 
