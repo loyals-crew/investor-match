@@ -47,7 +47,6 @@ export default function InvestorDashboard() {
   const [matches, setMatches]             = useState([]);
   const [sentInquiries, setSentInquiries] = useState([]);
   const [closingId, setClosingId]         = useState(null);
-  const [profileOpen, setProfileOpen]     = useState(false);
   const [inquiryModal, setInquiryModal]         = useState(null); // null | match object
   const [investorThreadModal, setInvestorThreadModal] = useState(null); // null | inquiry object
   const [dealModal, setDealModal]               = useState(null); // null | match object
@@ -139,49 +138,6 @@ export default function InvestorDashboard() {
           ))}
         </div>
 
-        {/* Investor-level mandate (collapsible) */}
-        {profile && (
-          <div style={styles.mandateCard}>
-            <button
-              style={styles.mandateHeader}
-              onClick={() => setProfileOpen(o => !o)}
-              aria-expanded={profileOpen}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                <span style={{ ...styles.chevron, transform: profileOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
-                  ▾
-                </span>
-                <div>
-                  <h2 style={styles.mandateTitle}>General Investment Profile</h2>
-                  <p style={styles.mandateSub}>Default mandate — individual funds can override this.</p>
-                </div>
-              </div>
-              <Link
-                to="/profile/investor/edit"
-                style={styles.mandateEditLink}
-                onClick={e => e.stopPropagation()}
-              >
-                Edit →
-              </Link>
-            </button>
-
-            {profileOpen && (
-              <div style={styles.mandateGrid}>
-                <MandateRow label="Sectors"    values={profile.sectors} />
-                <MandateRow label="Stages"     values={profile.stages} />
-                <MandateRow label="Geography"  values={profile.geography} />
-                <MandateRow label="Deal Types" values={profile.deal_types} />
-                <MandateRow
-                  label="Ticket Size"
-                  values={profile.ticket_min && profile.ticket_max
-                    ? [`$${(profile.ticket_min / 1000).toLocaleString()}k – $${(profile.ticket_max / 1000).toLocaleString()}k`]
-                    : []}
-                />
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ── Funds section ── */}
         <div style={styles.fundsHeader}>
           <div>
@@ -222,7 +178,7 @@ export default function InvestorDashboard() {
               <h2 style={styles.fundsTitle}>Company Matches</h2>
               <p style={styles.fundsSub}>
                 {matches.length === 0
-                  ? 'Set up a fund or update your profile to trigger matching.'
+                  ? 'Set up a fund to start matching with companies.'
                   : `${matches.filter(m => m.match_type === 'strong').length} strong · ${matches.filter(m => m.match_type === 'good').length} good · ${matches.filter(m => m.match_type === 'possible').length} possible`}
               </p>
             </div>
@@ -687,20 +643,6 @@ function MatchStat({ label, value }) {
     <div style={styles.fundStat}>
       <span style={styles.fundStatLabel}>{label}</span>
       <span style={styles.fundStatVal}>{value}</span>
-    </div>
-  );
-}
-
-function MandateRow({ label, values = [] }) {
-  return (
-    <div style={styles.mandateRow}>
-      <span style={styles.mandateLabel}>{label}</span>
-      <div style={styles.tagRow}>
-        {values.length > 0
-          ? values.map(v => <span key={v} style={styles.tag}>{v}</span>)
-          : <span style={{ color: '#d1d5db', fontSize: '0.85rem' }}>—</span>
-        }
-      </div>
     </div>
   );
 }
@@ -1198,17 +1140,6 @@ const styles = {
   statCard: { background: '#fff', borderRadius: 12, padding: '1.25rem 1.75rem', border: '1px solid #e5e7eb', flex: '1 1 160px', textAlign: 'center' },
   statValue: { fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem' },
   statLabel: { fontSize: '0.8rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' },
-
-  // Mandate card
-  mandateCard:   { background: '#fff', borderRadius: 16, border: '1px solid #e5e7eb', marginBottom: '2rem', overflow: 'hidden' },
-  mandateHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '1.1rem 1.5rem', background: '#fafafa', width: '100%', border: 'none', cursor: 'pointer', textAlign: 'left', borderBottom: 'none' },
-  chevron:       { fontSize: '1rem', color: '#9ca3af', display: 'inline-block', transition: 'transform 0.2s ease', lineHeight: 1, flexShrink: 0 },
-  mandateTitle:  { fontSize: '0.95rem', fontWeight: 600, color: '#1a1a2e', marginBottom: '0.15rem' },
-  mandateSub:    { fontSize: '0.78rem', color: '#9ca3af', textAlign: 'left' },
-  mandateEditLink: { fontSize: '0.85rem', color: '#7c3aed', fontWeight: 500, flexShrink: 0 },
-  mandateGrid:   { padding: '0.5rem 0', borderTop: '1px solid #f3f4f6' },
-  mandateRow:    { display: 'flex', alignItems: 'flex-start', padding: '0.7rem 1.5rem', borderBottom: '1px solid #f9fafb', gap: '1rem' },
-  mandateLabel:  { width: 100, fontSize: '0.8rem', color: '#9ca3af', fontWeight: 500, flexShrink: 0, paddingTop: 2 },
 
   // Funds header
   fundsHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' },
