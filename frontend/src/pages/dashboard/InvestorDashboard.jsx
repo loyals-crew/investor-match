@@ -121,6 +121,7 @@ export default function InvestorDashboard() {
             <h1 style={styles.title}>{profile?.firm_name || 'Investor Dashboard'}</h1>
             <p style={styles.sub}>Manage your funds and track your investment activity.</p>
           </div>
+          <Link to="/profile/investor/edit" style={styles.editProfileBtn}>✏️ Edit Profile</Link>
         </div>
 
         {/* Stats */}
@@ -1135,6 +1136,7 @@ const styles = {
   topRow:  { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' },
   title:   { fontSize: '1.75rem', fontWeight: 700, color: '#1a1a2e', marginBottom: '0.4rem' },
   sub:     { fontSize: '0.95rem', color: '#6b7280' },
+  editProfileBtn: { padding: '0.5rem 1rem', border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', color: '#374151', fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap', alignSelf: 'center' },
 
   statsRow: { display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' },
   statCard: { background: '#fff', borderRadius: 12, padding: '1.25rem 1.75rem', border: '1px solid #e5e7eb', flex: '1 1 160px', textAlign: 'center' },
