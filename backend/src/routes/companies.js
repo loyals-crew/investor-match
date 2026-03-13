@@ -20,7 +20,9 @@ router.post('/profile', authenticate, async (req, res) => {
     has_previous_funding, previous_funding, target_market,
   } = req.body;
 
+  // Bug #18: Server-side required field validation
   if (!company_name?.trim()) return res.status(400).json({ error: 'Company name is required' });
+  if (!contact_name?.trim()) return res.status(400).json({ error: 'Contact name is required' });
 
   try {
     const existing = await sql`SELECT id FROM company_profiles WHERE user_id = ${req.user.id}`;
@@ -29,8 +31,8 @@ router.post('/profile', authenticate, async (req, res) => {
     if (existing.length > 0) {
       [profile] = await sql`
         UPDATE company_profiles SET
-          company_name        = ${company_name?.trim()},
-          contact_name        = ${contact_name?.trim()},
+          company_name        = ${company_name.trim()},
+          contact_name        = ${contact_name.trim()},
           contact_role        = ${contact_role || null},
           country             = ${country || null},
           legal_type          = ${legal_type || null},
@@ -62,7 +64,7 @@ router.post('/profile', authenticate, async (req, res) => {
           revenue_status, annual_revenue, mrr, is_profitable,
           has_previous_funding, previous_funding, target_market
         ) VALUES (
-          ${req.user.id}, ${company_name?.trim()}, ${contact_name?.trim()}, ${contact_role || null},
+          ${req.user.id}, ${company_name.trim()}, ${contact_name.trim()}, ${contact_role || null},
           ${country || null}, ${legal_type || null}, ${registration_date || null}, ${website || null},
           ${sector || null}, ${stage || null}, ${business_model || null}, ${team_size || null},
           ${one_liner || null}, ${description || null},

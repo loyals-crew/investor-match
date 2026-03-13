@@ -89,6 +89,11 @@ router.put('/:id', authenticate, companyOnly, async (req, res) => {
     use_of_funds, closing_date,
   } = req.body;
 
+  // Bug #6: Validate required fields on update
+  if (!round_name?.trim()) {
+    return res.status(400).json({ error: 'Round name is required' });
+  }
+
   try {
     const [existing] = await sql`
       SELECT id FROM fundraise_rounds WHERE id = ${req.params.id} AND company_id = ${req.user.id}
@@ -97,7 +102,7 @@ router.put('/:id', authenticate, companyOnly, async (req, res) => {
 
     const [round] = await sql`
       UPDATE fundraise_rounds SET
-        round_name          = ${round_name?.trim()},
+        round_name          = ${round_name.trim()},
         status              = ${status || 'open'},
         raise_amount        = ${raise_amount || null},
         investment_types    = ${investment_types || []},

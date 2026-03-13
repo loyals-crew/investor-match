@@ -6,9 +6,12 @@
  *   computeMatchesForInvestor(investorId) — called after a fund is saved/closed
  *
  * Strategy (Option C — event-driven, DB-cached):
- *   • Delete stale matches for the affected entity
+ *   • Delete stale matches for the affected entity (preserving deals)
  *   • Recompute and upsert fresh matches
  *   • Errors are caught and logged; never propagate to the caller's response
+ *
+ * Bug #1:  DELETE + INSERT now wrapped in sql.transaction() for atomicity
+ * Bug #13: Investor mandates preloaded in bulk (no N+1 queries)
  */
 
 import sql from '../db/index.js';
@@ -19,9 +22,66 @@ import { scoreMatch } from './engine.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Build a list of mandate objects for an investor.
- * If the investor has active funds → one mandate per fund.
- * If no active funds → fall back to their general investor_profile.
+ * Preload all investor funds and profiles in bulk, then return a function
+ * that can retrieve mandates for any investor synchronously.
+ */
+async function buildMandateLookup() {
+  // Bug #13: Single bulk queries instead of per-investor queries
+  const allFunds = await sql`
+    SELECT investor_id, id, sectors, stages, geography, deal_types, deal_size_min, deal_size_max
+    FROM funds
+    WHERE status != 'closed'
+    ORDER BY created_at DESC
+  `;
+
+  const allProfiles = await sql`
+    SELECT user_id, sectors, stages, geography, deal_types, ticket_min, ticket_max
+    FROM investor_profiles
+  `;
+
+  // Build lookup maps
+  const fundsByInvestor = {};
+  for (const f of allFunds) {
+    (fundsByInvestor[f.investor_id] ??= []).push(f);
+  }
+  const profilesByUser = {};
+  for (const p of allProfiles) {
+    profilesByUser[p.user_id] = p;
+  }
+
+  return function getMandates(investorId) {
+    const funds = fundsByInvestor[investorId];
+    if (funds?.length > 0) {
+      return funds.map(f => ({
+        fund_id:    f.id,
+        sectors:    f.sectors    ?? [],
+        stages:     f.stages     ?? [],
+        geography:  f.geography  ?? [],
+        deal_types: f.deal_types ?? [],
+        size_min:   f.deal_size_min,
+        size_max:   f.deal_size_max,
+      }));
+    }
+
+    // Fall back to general investor profile
+    const profile = profilesByUser[investorId];
+    if (!profile) return [];
+
+    return [{
+      fund_id:    null,
+      sectors:    profile.sectors    ?? [],
+      stages:     profile.stages     ?? [],
+      geography:  profile.geography  ?? [],
+      deal_types: profile.deal_types ?? [],
+      size_min:   profile.ticket_min,
+      size_max:   profile.ticket_max,
+    }];
+  };
+}
+
+/**
+ * Build a list of mandate objects for a single investor (used by computeMatchesForInvestor
+ * where we only need one investor's mandates and can skip bulk loading).
  */
 async function getInvestorMandates(investorId) {
   const activeFunds = await sql`
@@ -44,7 +104,6 @@ async function getInvestorMandates(investorId) {
     }));
   }
 
-  // Fall back to general investor profile
   const [profile] = await sql`
     SELECT sectors, stages, geography, deal_types, ticket_min, ticket_max
     FROM investor_profiles
@@ -93,10 +152,10 @@ async function getActiveRoundsWithCompanies() {
  */
 export async function computeMatchesForRound(roundId) {
   try {
-    // Load the round
+    // Load the round + status in a single query
     const [round] = await sql`
       SELECT
-        r.id, r.company_id, r.raise_amount, r.investment_types, r.min_ticket,
+        r.id, r.company_id, r.raise_amount, r.investment_types, r.min_ticket, r.status,
         cp.sector, cp.stage, cp.country
       FROM fundraise_rounds r
       JOIN company_profiles cp ON cp.user_id = r.company_id
@@ -105,9 +164,9 @@ export async function computeMatchesForRound(roundId) {
     if (!round) return;
 
     // Abort early if round is closed (no matching needed)
-    const [roundStatus] = await sql`SELECT status FROM fundraise_rounds WHERE id = ${roundId}`;
-    if (roundStatus?.status === 'closed') {
-      await sql`DELETE FROM matches WHERE raise_round_id = ${roundId}`;
+    if (round.status === 'closed') {
+      // Only remove matches without deals (preserve completed/declined)
+      await sql`DELETE FROM matches WHERE raise_round_id = ${roundId} AND deal_status IS NULL`;
       return;
     }
 
@@ -121,13 +180,13 @@ export async function computeMatchesForRound(roundId) {
     // Load all investors
     const investors = await sql`SELECT id FROM users WHERE role = 'investor'`;
 
-    // Delete stale matches for this round
-    await sql`DELETE FROM matches WHERE raise_round_id = ${roundId}`;
+    // Bug #13: Build mandate lookup in bulk
+    const getMandates = await buildMandateLookup();
 
-    // Compute and collect new matches
+    // Compute new matches
     const toInsert = [];
     for (const investor of investors) {
-      const mandates = await getInvestorMandates(investor.id);
+      const mandates = getMandates(investor.id);
       for (const mandate of mandates) {
         const result = scoreMatch({ company, round: roundData, mandate });
         if (result) {
@@ -144,17 +203,25 @@ export async function computeMatchesForRound(roundId) {
       }
     }
 
-    // Batch insert
-    if (toInsert.length > 0) {
-      for (const m of toInsert) {
-        await sql`
-          INSERT INTO matches (raise_round_id, fund_id, company_id, investor_id, score, match_reasons, match_type)
-          VALUES (
-            ${m.raise_round_id}, ${m.fund_id}, ${m.company_id}, ${m.investor_id},
-            ${m.score}, ${m.match_reasons}, ${m.match_type}
-          )
-        `;
-      }
+    // Bug #1: Atomic DELETE + INSERT using transaction (preserves deals)
+    const queries = [
+      sql`DELETE FROM matches WHERE raise_round_id = ${roundId} AND deal_status IS NULL`,
+    ];
+    for (const m of toInsert) {
+      queries.push(sql`
+        INSERT INTO matches (raise_round_id, fund_id, company_id, investor_id, score, match_reasons, match_type)
+        VALUES (
+          ${m.raise_round_id}, ${m.fund_id}, ${m.company_id}, ${m.investor_id},
+          ${m.score}, ${m.match_reasons}, ${m.match_type}
+        )
+      `);
+    }
+
+    if (queries.length === 1 && toInsert.length === 0) {
+      // Only the DELETE — just run it directly
+      await queries[0];
+    } else {
+      await sql.transaction(queries);
     }
 
     console.log(`[matching] Round ${roundId}: ${toInsert.length} match(es) computed`);
@@ -169,16 +236,22 @@ export async function computeMatchesForRound(roundId) {
  */
 export async function computeMatchesForInvestor(investorId) {
   try {
-    // Delete all existing matches for this investor
-    await sql`DELETE FROM matches WHERE investor_id = ${investorId}`;
-
     // Get this investor's current mandates
     const mandates = await getInvestorMandates(investorId);
-    if (mandates.length === 0) return; // no profile or funds → nothing to match
+
+    if (mandates.length === 0) {
+      // No mandates, delete non-deal matches only
+      await sql`DELETE FROM matches WHERE investor_id = ${investorId} AND deal_status IS NULL`;
+      return;
+    }
 
     // Load all active rounds + company profiles
     const activeRounds = await getActiveRoundsWithCompanies();
-    if (activeRounds.length === 0) return;
+
+    if (activeRounds.length === 0) {
+      await sql`DELETE FROM matches WHERE investor_id = ${investorId} AND deal_status IS NULL`;
+      return;
+    }
 
     const toInsert = [];
     for (const row of activeRounds) {
@@ -205,16 +278,24 @@ export async function computeMatchesForInvestor(investorId) {
       }
     }
 
-    if (toInsert.length > 0) {
-      for (const m of toInsert) {
-        await sql`
-          INSERT INTO matches (raise_round_id, fund_id, company_id, investor_id, score, match_reasons, match_type)
-          VALUES (
-            ${m.raise_round_id}, ${m.fund_id}, ${m.company_id}, ${m.investor_id},
-            ${m.score}, ${m.match_reasons}, ${m.match_type}
-          )
-        `;
-      }
+    // Bug #1: Atomic DELETE + INSERT using transaction (preserves deals)
+    const queries = [
+      sql`DELETE FROM matches WHERE investor_id = ${investorId} AND deal_status IS NULL`,
+    ];
+    for (const m of toInsert) {
+      queries.push(sql`
+        INSERT INTO matches (raise_round_id, fund_id, company_id, investor_id, score, match_reasons, match_type)
+        VALUES (
+          ${m.raise_round_id}, ${m.fund_id}, ${m.company_id}, ${m.investor_id},
+          ${m.score}, ${m.match_reasons}, ${m.match_type}
+        )
+      `);
+    }
+
+    if (queries.length === 1 && toInsert.length === 0) {
+      await queries[0];
+    } else {
+      await sql.transaction(queries);
     }
 
     console.log(`[matching] Investor ${investorId}: ${toInsert.length} match(es) computed`);

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import sql from '../db/index.js';
+import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -16,8 +17,16 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: 'role must be investor or company' });
   }
 
+  // Bug #5: Server-side password validation
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  // Bug #24: Normalize email to lowercase
+  const normalizedEmail = email.trim().toLowerCase();
+
   try {
-    const existing = await sql`SELECT id FROM users WHERE email = ${email}`;
+    const existing = await sql`SELECT id FROM users WHERE email = ${normalizedEmail}`;
     if (existing.length > 0) {
       return res.status(409).json({ error: 'Email already registered' });
     }
@@ -25,7 +34,7 @@ router.post('/register', async (req, res) => {
     const password_hash = await bcrypt.hash(password, 10);
     const [user] = await sql`
       INSERT INTO users (email, password_hash, role)
-      VALUES (${email}, ${password_hash}, ${role})
+      VALUES (${normalizedEmail}, ${password_hash}, ${role})
       RETURNING id, email, role, onboarding_completed
     `;
 
@@ -50,8 +59,15 @@ router.post('/login', async (req, res) => {
     return res.status(400).json({ error: 'email and password are required' });
   }
 
+  // Bug #24: Normalize email
+  const normalizedEmail = email.trim().toLowerCase();
+
   try {
-    const [user] = await sql`SELECT * FROM users WHERE email = ${email}`;
+    // Bug #11: Select only needed fields instead of SELECT *
+    const [user] = await sql`
+      SELECT id, email, role, password_hash, onboarding_completed
+      FROM users WHERE email = ${normalizedEmail}
+    `;
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -82,20 +98,15 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /api/auth/me
-router.get('/me', async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+// GET /api/auth/me — Bug #12: Use authenticate middleware instead of duplicating JWT logic
+router.get('/me', authenticate, async (req, res) => {
   try {
-    const payload = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
     const [user] = await sql`
-      SELECT id, email, role, onboarding_completed FROM users WHERE id = ${payload.id}
+      SELECT id, email, role, onboarding_completed FROM users WHERE id = ${req.user.id}
     `;
-    return res.json({ user });
+    return res.json({ user: user || null });
   } catch {
-    return res.status(401).json({ error: 'Invalid token' });
+    return res.status(500).json({ error: 'Failed to fetch user' });
   }
 });
 

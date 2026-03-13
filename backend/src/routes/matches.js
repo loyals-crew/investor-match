@@ -6,6 +6,9 @@
  *
  * Company  → sees investors/funds matched to their active rounds
  * Investor → sees company rounds matched to their active funds / profile
+ *
+ * Bug #20: Completed deals are always visible, even if the round is closed.
+ * Bug #14: Fund ownership is verified when marking a deal.
  */
 
 import { Router } from 'express';
@@ -19,7 +22,6 @@ router.get('/', authenticate, async (req, res) => {
   try {
     if (req.user.role === 'company') {
       // ── Company perspective ──────────────────────────────────────────────
-      // Return matches grouped by round, showing matched investors/funds
       const rows = await sql`
         SELECT
           m.id,
@@ -47,14 +49,13 @@ router.get('/', authenticate, async (req, res) => {
         JOIN investor_profiles ip ON ip.user_id = m.investor_id
         LEFT JOIN funds f         ON f.id = m.fund_id
         WHERE m.company_id = ${req.user.id}
-          AND r.status IN ('open', 'closing')
+          AND (r.status IN ('open', 'closing') OR m.deal_status IS NOT NULL)
         ORDER BY m.score DESC, m.computed_at DESC
       `;
       return res.json({ matches: rows });
 
     } else if (req.user.role === 'investor') {
       // ── Investor perspective ─────────────────────────────────────────────
-      // Return matches showing company rounds that fit this investor's mandate
       const rows = await sql`
         SELECT
           m.id,
@@ -87,7 +88,7 @@ router.get('/', authenticate, async (req, res) => {
         JOIN company_profiles cp  ON cp.user_id = m.company_id
         LEFT JOIN funds f          ON f.id = m.fund_id
         WHERE m.investor_id = ${req.user.id}
-          AND r.status IN ('open', 'closing')
+          AND (r.status IN ('open', 'closing') OR m.deal_status IS NOT NULL)
         ORDER BY m.score DESC, m.computed_at DESC
       `;
       return res.json({ matches: rows });
@@ -127,6 +128,16 @@ router.patch('/:id/deal', authenticate, async (req, res) => {
       deal_status === 'completed'
         ? (deal_fund_id || match.fund_id)
         : null;
+
+    // Bug #14: Verify the investor actually owns the target fund
+    if (resolvedFundId) {
+      const [fund] = await sql`
+        SELECT id FROM funds WHERE id = ${resolvedFundId} AND investor_id = ${req.user.id}
+      `;
+      if (!fund) {
+        return res.status(400).json({ error: 'Fund not found or does not belong to you' });
+      }
+    }
 
     const [updated] = await sql`
       UPDATE matches SET

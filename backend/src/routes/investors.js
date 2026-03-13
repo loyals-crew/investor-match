@@ -23,6 +23,14 @@ router.post('/profile', authenticate, async (req, res) => {
     website,
   } = req.body;
 
+  // Bug #17: Server-side required field validation
+  if (!firm_name?.trim()) {
+    return res.status(400).json({ error: 'Firm name is required' });
+  }
+  if (!contact_name?.trim()) {
+    return res.status(400).json({ error: 'Contact name is required' });
+  }
+
   try {
     const existing = await sql`SELECT id FROM investor_profiles WHERE user_id = ${req.user.id}`;
 
@@ -30,8 +38,8 @@ router.post('/profile', authenticate, async (req, res) => {
     if (existing.length > 0) {
       [profile] = await sql`
         UPDATE investor_profiles SET
-          firm_name = ${firm_name},
-          contact_name = ${contact_name},
+          firm_name = ${firm_name.trim()},
+          contact_name = ${contact_name.trim()},
           sectors = ${sectors},
           stages = ${stages},
           geography = ${geography},
@@ -49,7 +57,7 @@ router.post('/profile', authenticate, async (req, res) => {
         INSERT INTO investor_profiles
           (user_id, firm_name, contact_name, sectors, stages, geography, ticket_min, ticket_max, deal_types, bio, website)
         VALUES
-          (${req.user.id}, ${firm_name}, ${contact_name}, ${sectors}, ${stages}, ${geography}, ${ticket_min}, ${ticket_max}, ${deal_types}, ${bio}, ${website})
+          (${req.user.id}, ${firm_name.trim()}, ${contact_name.trim()}, ${sectors}, ${stages}, ${geography}, ${ticket_min}, ${ticket_max}, ${deal_types}, ${bio}, ${website})
         RETURNING *
       `;
     }

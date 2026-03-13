@@ -130,6 +130,11 @@ router.put('/:id', authenticate, investorOnly, async (req, res) => {
     company_focus, thesis,
   } = req.body;
 
+  // Bug #6: Validate required fields on update
+  if (!name?.trim()) {
+    return res.status(400).json({ error: 'Fund name is required' });
+  }
+
   try {
     const [existing] = await sql`
       SELECT id FROM funds WHERE id = ${req.params.id} AND investor_id = ${req.user.id}
@@ -138,7 +143,7 @@ router.put('/:id', authenticate, investorOnly, async (req, res) => {
 
     const [fund] = await sql`
       UPDATE funds SET
-        name = ${name?.trim()},
+        name = ${name.trim()},
         vintage_year = ${vintage_year || null},
         status = ${status || 'active'},
         redemption_date = ${redemption_date || null},
@@ -176,6 +181,13 @@ router.delete('/:id', authenticate, investorOnly, async (req, res) => {
       UPDATE funds SET status = 'closed', updated_at = NOW()
       WHERE id = ${req.params.id} AND investor_id = ${req.user.id}
     `;
+
+    // Bug #19: Clean up orphaned matches (non-deal matches referencing this fund)
+    await sql`
+      DELETE FROM matches
+      WHERE fund_id = ${req.params.id} AND deal_status IS NULL
+    `;
+
     // Fire-and-forget: recompute matches (fund no longer active; may fall back to profile)
     computeMatchesForInvestor(req.user.id).catch(() => {});
     return res.json({ message: 'Fund closed successfully' });

@@ -143,7 +143,6 @@ router.post('/', authenticate, async (req, res) => {
 router.get('/', authenticate, async (req, res) => {
   try {
     if (req.user.role === 'investor') {
-      // Returns both inquiries this investor sent AND outreach companies sent to them
       const inquiries = await sql`
         SELECT
           i.*,
@@ -161,7 +160,6 @@ router.get('/', authenticate, async (req, res) => {
       return res.json({ inquiries });
 
     } else if (req.user.role === 'company') {
-      // Returns both inquiries companies received AND outreach companies sent
       const inquiries = await sql`
         SELECT
           i.*,
@@ -248,8 +246,6 @@ router.post('/:id/messages', authenticate, async (req, res) => {
     `;
 
     // Auto-advance pending → responded when the RECIPIENT first replies
-    // For investor-initiated: recipient is company
-    // For company-initiated:  recipient is investor
     const recipientId =
       inquiry.initiated_by === 'company' ? inquiry.investor_id : inquiry.company_id;
 
@@ -276,12 +272,24 @@ router.patch('/:id/status', authenticate, async (req, res) => {
   }
 
   try {
+    // Bug #8: Load full inquiry details for role-based restriction
     const [inquiry] = await sql`
-      SELECT id FROM inquiries
+      SELECT id, initiated_by, company_id, investor_id, status AS current_status
+      FROM inquiries
       WHERE id = ${req.params.id}
         AND (company_id = ${req.user.id} OR investor_id = ${req.user.id})
     `;
     if (!inquiry) return res.status(404).json({ error: 'Inquiry not found' });
+
+    // Bug #8: Only the recipient can mark as "responded"
+    if (status === 'responded') {
+      const recipientId =
+        inquiry.initiated_by === 'company' ? inquiry.investor_id : inquiry.company_id;
+      if (req.user.id !== recipientId) {
+        return res.status(403).json({ error: 'Only the recipient can mark as responded' });
+      }
+    }
+    // "passed" can be done by either party — no additional restriction
 
     const [updated] = await sql`
       UPDATE inquiries SET status = ${status}, updated_at = NOW()
