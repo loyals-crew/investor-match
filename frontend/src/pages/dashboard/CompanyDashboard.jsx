@@ -136,6 +136,7 @@ export default function CompanyDashboard() {
               {profile?.one_liner || 'Manage your profile and track investor interest.'}
             </p>
           </div>
+          <Link to="/profile/company/edit" style={S.editProfileBtn}>✏️ Edit Profile</Link>
         </div>
 
         {/* Stats */}
@@ -170,13 +171,6 @@ export default function CompanyDashboard() {
                   <p style={S.profileSub}>Your public profile shown to matched investors.</p>
                 </div>
               </div>
-              <Link
-                to="/profile/company/edit"
-                style={S.profileEditLink}
-                onClick={e => e.stopPropagation()}
-              >
-                Edit →
-              </Link>
             </button>
 
             {profileOpen && (
@@ -975,7 +969,7 @@ const S = {
   chevron:         { fontSize: '1rem', color: '#9ca3af', display: 'inline-block', transition: 'transform 0.2s ease', lineHeight: 1, flexShrink: 0 },
   profileTitle:    { fontSize: '0.95rem', fontWeight: 600, color: '#1a1a2e', marginBottom: '0.15rem' },
   profileSub:      { fontSize: '0.78rem', color: '#9ca3af', textAlign: 'left' },
-  profileEditLink: { fontSize: '0.85rem', color: '#059669', fontWeight: 500, flexShrink: 0 },
+  editProfileBtn: { padding: '0.5rem 1rem', border: '1px solid #e5e7eb', borderRadius: 8, background: '#fff', color: '#374151', fontSize: '0.85rem', fontWeight: 500, whiteSpace: 'nowrap', alignSelf: 'center' },
   profileGrid:     { borderTop: '1px solid #f3f4f6', padding: '0.75rem 0 0.25rem' },
   profileSection:  { padding: '0.25rem 0 0.5rem' },
   sectionLabel:    { fontSize: '0.7rem', fontWeight: 700, color: '#059669', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '0.25rem 1.5rem 0.4rem' },
