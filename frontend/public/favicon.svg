@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="32" fill="#7c3aed"/>
+  <!-- Handshake icon -->
+  <g stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Left arm -->
+    <path d="M12 32 L20 28 L26 28"/>
+    <!-- Right arm -->
+    <path d="M52 32 L44 28 L38 28"/>
+    <!-- Hands clasping -->
+    <path d="M26 28 C28 24, 32 24, 34 28 C36 24, 40 24, 38 28"/>
+    <!-- Fingers interlocking -->
+    <path d="M26 28 L24 34 C24 37, 28 38, 30 36 L32 34 L34 36 C36 38, 40 37, 40 34 L38 28"/>
+    <!-- Arrow up-right (growth/match) -->
+    <path d="M36 20 L42 14 M42 14 L42 19 M42 14 L37 14" stroke-width="2.2"/>
+  </g>
+</svg>
