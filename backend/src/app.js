@@ -59,6 +59,6 @@ app.use('/api/raises', raiseRoutes);
 app.use('/api/matches', matchRoutes);
 app.use('/api/inquiries', inquiryRoutes);
 
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
+app.get('/api/health', (_, res) => res.json({ status: 'ok' }));
 
 export default app;
