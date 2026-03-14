@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 
@@ -113,6 +113,30 @@ export default function CompanyDashboard() {
     outreachMap.get(key).add(inq.request_type);
   }
 
+  // Group matches by investor — one card per counterparty
+  const groupedMatches = useMemo(() => {
+    const map = new Map();
+    for (const m of matches) {
+      if (!map.has(m.investor_id)) {
+        map.set(m.investor_id, {
+          investor_id: m.investor_id,
+          investor_firm: m.investor_firm,
+          investor_contact: m.investor_contact,
+          bestScore: m.score,
+          bestType: m.match_type,
+          rounds: [],
+        });
+      }
+      const group = map.get(m.investor_id);
+      if (m.score > group.bestScore) {
+        group.bestScore = m.score;
+        group.bestType = m.match_type;
+      }
+      group.rounds.push(m);
+    }
+    return [...map.values()];
+  }, [matches]);
+
   const activeRounds         = rounds.filter(r => r.status !== 'closed');
   const pendingInquiries     = receivedInquiries.filter(q => q.status === 'pending');
   const outreachWithReplies  = sentOutreach.filter(i => i.status === 'responded');
@@ -144,7 +168,7 @@ export default function CompanyDashboard() {
           {[
             { label: 'Stage',            value: profile?.stage || '—',                    color: profile?.stage ? '#059669' : '#6b7280' },
             { label: 'Active Rounds',    value: activeRounds.length || '—',               color: activeRounds.length > 0 ? '#059669' : '#6b7280' },
-            { label: 'Investor Matches', value: matches.length || '—',                    color: matches.length > 0 ? '#059669' : '#6b7280' },
+            { label: 'Investor Matches', value: groupedMatches.length || '—',              color: groupedMatches.length > 0 ? '#059669' : '#6b7280' },
             { label: 'Inquiries',        value: receivedInquiries.length || '—',          color: pendingInquiries.length > 0 ? '#d97706' : receivedInquiries.length > 0 ? '#059669' : '#6b7280' },
           ].map(s => (
             <div key={s.label} style={S.statCard}>
@@ -272,14 +296,14 @@ export default function CompanyDashboard() {
             <div>
               <h2 style={S.raiseTitle}>Investor Matches</h2>
               <p style={S.raiseSub}>
-                {matches.length === 0
+                {groupedMatches.length === 0
                   ? 'Create a fundraise round to start seeing matched investors.'
-                  : `${matches.filter(m => m.match_type === 'strong').length} strong · ${matches.filter(m => m.match_type === 'good').length} good · ${matches.filter(m => m.match_type === 'possible').length} possible`}
+                  : `${groupedMatches.filter(g => g.bestType === 'strong').length} strong · ${groupedMatches.filter(g => g.bestType === 'good').length} good · ${groupedMatches.filter(g => g.bestType === 'possible').length} possible`}
               </p>
             </div>
           </div>
 
-          {matches.length === 0 ? (
+          {groupedMatches.length === 0 ? (
             <div style={S.raiseEmpty}>
               <div style={S.raiseEmptyIcon}>🔍</div>
               <p style={S.raiseEmptyText}>
@@ -288,17 +312,14 @@ export default function CompanyDashboard() {
             </div>
           ) : (
             <div style={S.roundsList}>
-              {matches.map(m => {
-                const sentTypes = outreachMap.get(`${m.investor_id}_${m.raise_round_id}`) || new Set();
-                return (
-                  <MatchCard
-                    key={m.id}
-                    match={m}
-                    sentTypes={sentTypes}
-                    onReachOut={() => setOutreachModal({ match: m, sentTypes })}
-                  />
-                );
-              })}
+              {groupedMatches.map(group => (
+                <InvestorGroupCard
+                  key={group.investor_id}
+                  group={group}
+                  outreachMap={outreachMap}
+                  onReachOut={(m, sentTypes) => setOutreachModal({ match: m, sentTypes })}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -482,11 +503,8 @@ const MATCH_TYPE_STYLE = {
   possible: { bg: '#fefce8', color: '#854d0e', label: 'Possible Match' },
 };
 
-function MatchCard({ match, sentTypes, onReachOut }) {
-  const mt = MATCH_TYPE_STYLE[match.match_type] || MATCH_TYPE_STYLE.possible;
-  const ticketMin = match.fund_id ? match.deal_size_min : match.ticket_min;
-  const ticketMax = match.fund_id ? match.deal_size_max : match.ticket_max;
-  const sentCount = sentTypes?.size || 0;
+function InvestorGroupCard({ group, outreachMap, onReachOut }) {
+  const mt = MATCH_TYPE_STYLE[group.bestType] || MATCH_TYPE_STYLE.possible;
 
   function fmtTicket(val) {
     if (!val) return null;
@@ -495,53 +513,66 @@ function MatchCard({ match, sentTypes, onReachOut }) {
 
   return (
     <div style={S.roundCard}>
+      {/* Investor header */}
       <div style={S.roundTop}>
         <div style={S.roundLeft}>
           <span style={{ ...S.roundBadge, background: mt.bg, color: mt.color }}>{mt.label}</span>
-          <h3 style={S.roundName}>{match.investor_firm || match.investor_contact || 'Investor'}</h3>
-          {match.fund_name && (
-            <span style={S.matchFundTag}>📁 {match.fund_name}</span>
-          )}
+          <h3 style={S.roundName}>{group.investor_firm || group.investor_contact || 'Investor'}</h3>
         </div>
         <div style={S.matchScore}>
-          <span style={S.matchScoreNum}>{match.score}</span>
+          <span style={S.matchScoreNum}>{group.bestScore}</span>
           <span style={S.matchScoreDen}>/100</span>
         </div>
       </div>
 
-      <div style={S.matchRoundTag}>
-        For: <strong>{match.round_name}</strong>
-      </div>
+      {/* Round sub-rows */}
+      <div style={S.roundSubList}>
+        {group.rounds.map(m => {
+          const sentTypes = outreachMap.get(`${m.investor_id}_${m.raise_round_id}`) || new Set();
+          const sentCount = sentTypes.size;
+          const ticketMin = m.fund_id ? m.deal_size_min : m.ticket_min;
+          const ticketMax = m.fund_id ? m.deal_size_max : m.ticket_max;
 
-      {(ticketMin || ticketMax) && (
-        <div style={S.roundMeta}>
-          {ticketMin && <RoundMetaItem label="Min Ticket" value={fmtTicket(ticketMin)} />}
-          {ticketMax && <RoundMetaItem label="Max Ticket" value={fmtTicket(ticketMax)} />}
-        </div>
-      )}
+          return (
+            <div key={m.id} style={S.roundSubRow}>
+              <div style={S.roundSubHeader}>
+                <div style={S.roundSubLeft}>
+                  {m.fund_name && <span style={S.matchFundTag}>📁 {m.fund_name}</span>}
+                  <span style={S.matchRoundTag}>For: <strong>{m.round_name}</strong></span>
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{m.score}/100</span>
+              </div>
 
-      {match.match_reasons?.length > 0 && (
-        <div style={S.reasonPills}>
-          {match.match_reasons.map(r => (
-            <span key={r} style={S.reasonPill}>✓ {r}</span>
-          ))}
-        </div>
-      )}
+              {(ticketMin || ticketMax) && (
+                <div style={S.roundMeta}>
+                  {ticketMin && <RoundMetaItem label="Min Ticket" value={fmtTicket(ticketMin)} />}
+                  {ticketMax && <RoundMetaItem label="Max Ticket" value={fmtTicket(ticketMax)} />}
+                </div>
+              )}
 
-      {/* Reach Out row */}
-      <div style={S.reachOutRow}>
-        {sentCount > 0 && (
-          <span style={S.sentOutreachBadge}>
-            {sentCount} outreach sent
-          </span>
-        )}
-        <button
-          style={sentCount >= COMPANY_OUTREACH_TYPES.length ? S.reachOutBtnDisabled : S.reachOutBtn}
-          onClick={onReachOut}
-          disabled={sentCount >= COMPANY_OUTREACH_TYPES.length}
-        >
-          📤 Reach Out
-        </button>
+              {m.match_reasons?.length > 0 && (
+                <div style={S.reasonPills}>
+                  {m.match_reasons.map(r => (
+                    <span key={r} style={S.reasonPill}>✓ {r}</span>
+                  ))}
+                </div>
+              )}
+
+              <div style={S.roundSubActions}>
+                {sentCount > 0 && (
+                  <span style={S.sentOutreachBadge}>{sentCount} sent</span>
+                )}
+                <button
+                  style={sentCount >= COMPANY_OUTREACH_TYPES.length ? S.reachOutBtnSmDisabled : S.reachOutBtnSm}
+                  onClick={() => onReachOut(m, sentTypes)}
+                  disabled={sentCount >= COMPANY_OUTREACH_TYPES.length}
+                >
+                  📤 Reach Out
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1018,6 +1049,15 @@ const S = {
   sentOutreachBadge:{ fontSize: '0.72rem', color: '#059669', background: '#ecfdf5', padding: '0.2rem 0.6rem', borderRadius: 999, fontWeight: 500 },
   reachOutBtn:      { padding: '0.4rem 1rem', background: '#1e40af', color: '#fff', border: 'none', borderRadius: 8, fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' },
   reachOutBtnDisabled: { padding: '0.4rem 1rem', background: '#e5e7eb', color: '#9ca3af', border: 'none', borderRadius: 8, fontSize: '0.82rem', fontWeight: 600, cursor: 'not-allowed' },
+  reachOutBtnSm:    { padding: '0.25rem 0.7rem', background: '#1e40af', color: '#fff', border: 'none', borderRadius: 6, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer' },
+  reachOutBtnSmDisabled: { padding: '0.25rem 0.7rem', background: '#e5e7eb', color: '#9ca3af', border: 'none', borderRadius: 6, fontSize: '0.72rem', fontWeight: 600, cursor: 'not-allowed' },
+
+  // Round sub-list (grouped card)
+  roundSubList:    { display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid #f3f4f6', paddingTop: '0.65rem', marginTop: '0.2rem' },
+  roundSubRow:     { padding: '0.65rem 0.75rem', background: '#fafafa', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: '0.45rem' },
+  roundSubHeader:  { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' },
+  roundSubLeft:    { display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' },
+  roundSubActions: { display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid #e5e7eb', paddingTop: '0.45rem', marginTop: '0.1rem' },
 
   // Inquiry card
   inquiryCardPending: { borderLeft: '3px solid #d97706' },

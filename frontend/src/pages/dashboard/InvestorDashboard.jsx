@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 
@@ -100,6 +100,33 @@ export default function InvestorDashboard() {
     }
   }
 
+  // Group matches by company — one card per counterparty
+  const groupedMatches = useMemo(() => {
+    const map = new Map();
+    for (const m of matches) {
+      if (!map.has(m.company_id)) {
+        map.set(m.company_id, {
+          company_id: m.company_id,
+          company_name: m.company_name,
+          sector: m.sector,
+          stage: m.stage,
+          country: m.country,
+          one_liner: m.one_liner,
+          bestScore: m.score,
+          bestType: m.match_type,
+          rounds: [],
+        });
+      }
+      const group = map.get(m.company_id);
+      if (m.score > group.bestScore) {
+        group.bestScore = m.score;
+        group.bestType = m.match_type;
+      }
+      group.rounds.push(m);
+    }
+    return [...map.values()];
+  }, [matches]);
+
   const activeFunds = funds.filter(f => f.status !== 'closed');
   const closedFunds = funds.filter(f => f.status === 'closed');
   const pendingCompanyOutreach = receivedFromCompanies.filter(i => i.status === 'pending');
@@ -128,7 +155,7 @@ export default function InvestorDashboard() {
         <div style={styles.statsRow}>
           {[
             { label: 'Active Funds',   value: activeFunds.length || '—',         color: '#7c3aed' },
-            { label: 'Matches',        value: matches.length || '—',             color: matches.length > 0 ? '#7c3aed' : '#6b7280' },
+            { label: 'Matches',        value: groupedMatches.length || '—',      color: groupedMatches.length > 0 ? '#7c3aed' : '#6b7280' },
             { label: 'Inquiries Sent', value: sentByMe.length || '—',           color: sentByMe.length > 0 ? '#7c3aed' : '#6b7280' },
             { label: 'Incoming',       value: receivedFromCompanies.length || '—', color: pendingCompanyOutreach.length > 0 ? '#d97706' : receivedFromCompanies.length > 0 ? '#059669' : '#6b7280' },
           ].map(s => (
@@ -178,14 +205,14 @@ export default function InvestorDashboard() {
             <div>
               <h2 style={styles.fundsTitle}>Company Matches</h2>
               <p style={styles.fundsSub}>
-                {matches.length === 0
+                {groupedMatches.length === 0
                   ? 'Set up a fund to start matching with companies.'
-                  : `${matches.filter(m => m.match_type === 'strong').length} strong · ${matches.filter(m => m.match_type === 'good').length} good · ${matches.filter(m => m.match_type === 'possible').length} possible`}
+                  : `${groupedMatches.filter(g => g.bestType === 'strong').length} strong · ${groupedMatches.filter(g => g.bestType === 'good').length} good · ${groupedMatches.filter(g => g.bestType === 'possible').length} possible`}
               </p>
             </div>
           </div>
 
-          {matches.length === 0 ? (
+          {groupedMatches.length === 0 ? (
             <div style={{ ...styles.emptyFunds, border: '1px dashed #e5e7eb' }}>
               <div style={styles.emptyIcon}>🔍</div>
               <h3 style={styles.emptyTitle}>No matches yet</h3>
@@ -195,13 +222,13 @@ export default function InvestorDashboard() {
             </div>
           ) : (
             <div style={styles.matchList}>
-              {matches.map(m => (
-                <CompanyMatchCard
-                  key={m.id}
-                  match={m}
-                  sentTypes={sentMap.get(m.raise_round_id) || new Set()}
-                  onInquire={() => setInquiryModal(m)}
-                  onMarkDeal={() => setDealModal(m)}
+              {groupedMatches.map(group => (
+                <CompanyGroupCard
+                  key={group.company_id}
+                  group={group}
+                  sentMap={sentMap}
+                  onInquire={m => setInquiryModal(m)}
+                  onMarkDeal={m => setDealModal(m)}
                 />
               ))}
             </div>
@@ -421,11 +448,10 @@ function FundCard({ fund, onClose, closing, onPortfolio }) {
   );
 }
 
-/* ─── Company Match Card ─── */
+/* ─── Company Group Card (grouped by company) ─── */
 
-function CompanyMatchCard({ match, sentTypes, onInquire, onMarkDeal }) {
-  const mb = MATCH_BADGE[match.match_type] || MATCH_BADGE.possible;
-  const sentCount = sentTypes?.size || 0;
+function CompanyGroupCard({ group, sentMap, onInquire, onMarkDeal }) {
+  const mb = MATCH_BADGE[group.bestType] || MATCH_BADGE.possible;
 
   function fmtMoney(val) {
     if (!val) return null;
@@ -434,93 +460,93 @@ function CompanyMatchCard({ match, sentTypes, onInquire, onMarkDeal }) {
 
   return (
     <div style={styles.matchCard}>
-      {/* Top row */}
+      {/* Company header */}
       <div style={styles.matchTop}>
         <div style={styles.matchLeft}>
           <span style={{ ...styles.statusBadge, background: mb.bg, color: mb.color }}>{mb.label}</span>
-          <h3 style={styles.matchCompanyName}>{match.company_name || 'Company'}</h3>
+          <h3 style={styles.matchCompanyName}>{group.company_name || 'Company'}</h3>
         </div>
         <div style={styles.matchScore}>
-          <span style={styles.matchScoreNum}>{match.score}</span>
+          <span style={styles.matchScoreNum}>{group.bestScore}</span>
           <span style={styles.matchScoreDen}>/100</span>
         </div>
       </div>
 
       {/* Company tags */}
       <div style={styles.tagRow}>
-        {match.sector  && <span style={styles.tag}>{match.sector}</span>}
-        {match.stage   && <span style={styles.tag}>{match.stage}</span>}
-        {match.country && <span style={{ ...styles.tag, background: '#f0f9ff', color: '#0369a1' }}>{match.country}</span>}
-      </div>
-
-      {/* Round info */}
-      <div style={styles.matchRoundInfo}>
-        <span style={styles.matchRoundLabel}>Round:</span>
-        <span style={styles.matchRoundName}>{match.round_name}</span>
-        {match.fund_name
-          ? <span style={styles.matchFundBadge}>📁 {match.fund_name}</span>
-          : <span style={styles.matchFundBadge}>👤 General Profile</span>
-        }
-      </div>
-
-      {/* Round financials */}
-      <div style={styles.fundStats}>
-        {match.raise_amount   && <MatchStat label="Raising"    value={fmtMoney(match.raise_amount)} />}
-        {match.min_ticket     && <MatchStat label="Min Ticket" value={fmtMoney(match.min_ticket)} />}
-        {match.equity_offered && <MatchStat label="Equity"     value={`${match.equity_offered}%`} />}
-        {match.closing_date   && <MatchStat label="Closes"     value={new Date(match.closing_date).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })} />}
+        {group.sector  && <span style={styles.tag}>{group.sector}</span>}
+        {group.stage   && <span style={styles.tag}>{group.stage}</span>}
+        {group.country && <span style={{ ...styles.tag, background: '#f0f9ff', color: '#0369a1' }}>{group.country}</span>}
       </div>
 
       {/* One-liner */}
-      {match.one_liner && (
-        <p style={styles.thesis}>{match.one_liner}</p>
+      {group.one_liner && (
+        <p style={styles.thesis}>{group.one_liner}</p>
       )}
 
-      {/* Reasons */}
-      {match.match_reasons?.length > 0 && (
-        <div style={styles.tagRow}>
-          {match.match_reasons.map(r => (
-            <span key={r} style={styles.reasonPill}>✓ {r}</span>
-          ))}
-        </div>
-      )}
+      {/* Round sub-rows */}
+      <div style={styles.roundSubList}>
+        {group.rounds.map(m => {
+          const sentTypes = sentMap.get(m.raise_round_id) || new Set();
+          const sentCount = sentTypes.size;
+          return (
+            <div key={m.id} style={styles.roundSubRow}>
+              {/* Round header */}
+              <div style={styles.roundSubHeader}>
+                <div style={styles.roundSubLeft}>
+                  <span style={styles.matchRoundName}>{m.round_name}</span>
+                  {m.fund_name && <span style={styles.matchFundBadge}>📁 {m.fund_name}</span>}
+                </div>
+                <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>{m.score}/100</span>
+              </div>
 
-      {/* Inquire button */}
-      <div style={styles.inquireRow}>
-        {sentCount > 0 && (
-          <span style={styles.sentBadge}>
-            {sentCount} inquiry{sentCount > 1 ? ' types' : ''} sent
-          </span>
-        )}
-        <button
-          style={{
-            ...styles.inquireBtn,
-            ...(sentCount >= 4 ? styles.inquireBtnDisabled : {}),
-          }}
-          onClick={onInquire}
-          disabled={sentCount >= 4}
-        >
-          {sentCount >= 4 ? '✓ All Sent' : sentCount > 0 ? 'Inquire Again' : '✉ Inquire'}
-        </button>
-      </div>
+              {/* Financials */}
+              <div style={styles.fundStats}>
+                {m.raise_amount   && <MatchStat label="Raising"    value={fmtMoney(m.raise_amount)} />}
+                {m.min_ticket     && <MatchStat label="Min Ticket" value={fmtMoney(m.min_ticket)} />}
+                {m.equity_offered && <MatchStat label="Equity"     value={`${m.equity_offered}%`} />}
+              </div>
 
-      {/* Deal row */}
-      <div style={styles.dealRow}>
-        {match.deal_status === 'completed' ? (
-          <span style={styles.dealBadgeCompleted}>
-            ✓ Invested{match.deal_amount ? ` · ${fmtMoney(match.deal_amount)}` : ''}
-          </span>
-        ) : match.deal_status === 'declined' ? (
-          <span style={styles.dealBadgeDeclined}>✗ Not Pursuing</span>
-        ) : (
-          <span style={{ fontSize: '0.72rem', color: '#9ca3af' }}>No decision yet</span>
-        )}
-        <button
-          style={match.deal_status ? styles.dealEditBtn : styles.dealMarkBtn}
-          onClick={onMarkDeal}
-        >
-          {match.deal_status ? 'Edit' : '🤝 Mark Deal'}
-        </button>
+              {/* Reasons */}
+              {m.match_reasons?.length > 0 && (
+                <div style={styles.tagRow}>
+                  {m.match_reasons.map(r => (
+                    <span key={r} style={styles.reasonPill}>✓ {r}</span>
+                  ))}
+                </div>
+              )}
+
+              {/* Actions row */}
+              <div style={styles.roundSubActions}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {sentCount > 0 && (
+                    <span style={styles.sentBadge}>{sentCount} sent</span>
+                  )}
+                  <button
+                    style={{ ...styles.inquireBtnSm, ...(sentCount >= 4 ? styles.inquireBtnDisabled : {}) }}
+                    onClick={() => onInquire(m)}
+                    disabled={sentCount >= 4}
+                  >
+                    {sentCount >= 4 ? '✓ All Sent' : '✉ Inquire'}
+                  </button>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {m.deal_status === 'completed' ? (
+                    <span style={styles.dealBadgeCompleted}>✓ Invested{m.deal_amount ? ` · ${fmtMoney(m.deal_amount)}` : ''}</span>
+                  ) : m.deal_status === 'declined' ? (
+                    <span style={styles.dealBadgeDeclined}>✗ Passed</span>
+                  ) : null}
+                  <button
+                    style={m.deal_status ? styles.dealEditBtn : styles.dealMarkBtnSm}
+                    onClick={() => onMarkDeal(m)}
+                  >
+                    {m.deal_status ? 'Edit' : '🤝 Deal'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -1298,7 +1324,16 @@ const styles = {
   dealBadgeCompleted: { fontSize: '0.75rem', fontWeight: 700, color: '#065f46', background: '#ecfdf5', padding: '0.25rem 0.65rem', borderRadius: 999 },
   dealBadgeDeclined:  { fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', background: '#f3f4f6', padding: '0.25rem 0.65rem', borderRadius: 999 },
   dealMarkBtn:       { padding: '0.35rem 0.8rem', fontSize: '0.78rem', fontWeight: 600, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer' },
+  dealMarkBtnSm:     { padding: '0.25rem 0.6rem', fontSize: '0.72rem', fontWeight: 600, border: '1px solid #d1d5db', borderRadius: 6, background: '#fff', color: '#374151', cursor: 'pointer' },
   dealEditBtn:       { padding: '0.35rem 0.7rem', fontSize: '0.75rem', fontWeight: 500, border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', color: '#7c3aed', cursor: 'pointer' },
+
+  // Round sub-list (grouped card)
+  roundSubList:    { display: 'flex', flexDirection: 'column', gap: '0.5rem', borderTop: '1px solid #f3f4f6', paddingTop: '0.65rem', marginTop: '0.2rem' },
+  roundSubRow:     { padding: '0.65rem 0.75rem', background: '#fafafa', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: '0.45rem' },
+  roundSubHeader:  { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' },
+  roundSubLeft:    { display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' },
+  roundSubActions: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', borderTop: '1px solid #e5e7eb', paddingTop: '0.45rem', marginTop: '0.1rem' },
+  inquireBtnSm:    { padding: '0.25rem 0.7rem', background: '#7c3aed', color: '#fff', borderRadius: 6, fontWeight: 600, fontSize: '0.72rem', border: 'none', cursor: 'pointer' },
 
   // Deal modal choice buttons
   dealChoiceBtn: {
